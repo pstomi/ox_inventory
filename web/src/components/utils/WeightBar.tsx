@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 
 const colorChannelMixer = (colorChannelA: number, colorChannelB: number, amountToMix: number) => {
   let channelA = colorChannelA * amountToMix;
@@ -20,11 +20,8 @@ const COLORS = {
   accentColor: [211, 84, 0], // Orange (Oragne)
 };
 
-const WeightBar: React.FC<{ percent: number; durability?: boolean }> = ({
-  percent,
-  durability,
-}) => {
-  const color = React.useMemo(
+const WeightBar: React.FC<{ percent: number; durability?: boolean }> = ({ percent, durability }) => {
+  const color = useMemo(
     () =>
       durability
         ? percent < 50
@@ -37,10 +34,11 @@ const WeightBar: React.FC<{ percent: number; durability?: boolean }> = ({
   );
 
   return (
-    <div className={durability ? 'item-durability' : 'weight-bar'}>
+    <div className={durability ? 'durability-bar' : 'weight-bar'}>
       <div
         style={{
           visibility: percent > 0 ? 'visible' : 'hidden',
+          height: '100%',
           width: `${percent}%`,
           backgroundColor: color,
           transition: `background ${0.3}s ease, width ${0.3}s ease`,

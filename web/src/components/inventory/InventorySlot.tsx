@@ -1,25 +1,39 @@
-import React from 'react';
+import React, { useCallback, useRef } from 'react';
 import { DragSource, Inventory, InventoryType, Slot, SlotWithItem } from '../../typings';
-import { useDrag, useDrop } from 'react-dnd';
-import { useAppSelector } from '../../store';
+import { useDrag, useDragDropManager, useDrop } from 'react-dnd';
+import { useAppDispatch } from '../../store';
 import WeightBar from '../utils/WeightBar';
 import { onDrop } from '../../dnd/onDrop';
 import { onBuy } from '../../dnd/onBuy';
-import { selectIsBusy } from '../../store/inventory';
 import { Items } from '../../store/items';
-import { isSlotWithItem } from '../../helpers';
-import { useContextMenu } from 'react-contexify';
+import { canCraftItem, canPurchaseItem, getItemUrl, isSlotWithItem } from '../../helpers';
 import { onUse } from '../../dnd/onUse';
-import ReactTooltip from 'react-tooltip';
+import { Locale } from '../../store/locale';
+import { onCraft } from '../../dnd/onCraft';
+import useNuiEvent from '../../hooks/useNuiEvent';
+import { ItemsPayload } from '../../reducers/refreshSlots';
+import { closeTooltip, openTooltip } from '../../store/tooltip';
+import { openContextMenu } from '../../store/contextMenu';
+import { useMergeRefs } from '@floating-ui/react';
 
 interface SlotProps {
-  inventory: Inventory;
+  inventoryId: Inventory['id'];
+  inventoryType: Inventory['type'];
+  inventoryGroups: Inventory['groups'];
   item: Slot;
-  setCurrentItem: React.Dispatch<React.SetStateAction<SlotWithItem | undefined>>;
 }
 
-const InventorySlot: React.FC<SlotProps> = ({ inventory, item, setCurrentItem }) => {
-  const isBusy = useAppSelector(selectIsBusy);
+const InventorySlot: React.ForwardRefRenderFunction<HTMLDivElement, SlotProps> = (
+  { item, inventoryId, inventoryType, inventoryGroups },
+  ref
+) => {
+  const manager = useDragDropManager();
+  const dispatch = useAppDispatch();
+  const timerRef = useRef<number | null>(null);
+
+  const canDrag = useCallback(() => {
+    return canPurchaseItem(item, { type: inventoryType, groups: inventoryGroups }) && canCraftItem(item, inventoryType);
+  }, [item, inventoryType, inventoryGroups]);
 
   const [{ isDragging }, drag] = useDrag<DragSource, void, { isDragging: boolean }>(
     () => ({
@@ -28,19 +42,19 @@ const InventorySlot: React.FC<SlotProps> = ({ inventory, item, setCurrentItem })
         isDragging: monitor.isDragging(),
       }),
       item: () =>
-        isSlotWithItem(item, inventory.type !== InventoryType.SHOP)
+        isSlotWithItem(item, inventoryType !== InventoryType.SHOP)
           ? {
-              inventory: inventory.type,
+              inventory: inventoryType,
               item: {
                 name: item.name,
                 slot: item.slot,
               },
-              image: item.metadata?.image,
+              image: item?.name && `url(${getItemUrl(item) || 'none'}`,
             }
           : null,
-      canDrag: !isBusy,
+      canDrag,
     }),
-    [isBusy, inventory, item]
+    [inventoryType, item]
   );
 
   const [{ isOver }, drop] = useDrop<DragSource, void, { isOver: boolean }>(
@@ -49,149 +63,189 @@ const InventorySlot: React.FC<SlotProps> = ({ inventory, item, setCurrentItem })
       collect: (monitor) => ({
         isOver: monitor.isOver(),
       }),
-      drop: (source) =>
-        source.inventory === InventoryType.SHOP
-          ? onBuy(source, {
-              inventory: inventory.type,
-              item: {
-                slot: item.slot,
-              },
-            })
-          : onDrop(source, {
-              inventory: inventory.type,
-              item: {
-                slot: item.slot,
-              },
-            }),
+      drop: (source) => {
+        dispatch(closeTooltip());
+        switch (source.inventory) {
+          case InventoryType.SHOP:
+            onBuy(source, { inventory: inventoryType, item: { slot: item.slot } });
+            break;
+          case InventoryType.CRAFTING:
+            onCraft(source, { inventory: inventoryType, item: { slot: item.slot } });
+            break;
+          default:
+            onDrop(source, { inventory: inventoryType, item: { slot: item.slot } });
+            break;
+        }
+      },
       canDrop: (source) =>
-        !isBusy &&
-        (source.item.slot !== item.slot || source.inventory !== inventory.type) &&
-        inventory.type !== InventoryType.SHOP,
+        (source.item.slot !== item.slot || source.inventory !== inventoryType) &&
+        inventoryType !== InventoryType.SHOP &&
+        inventoryType !== InventoryType.CRAFTING,
     }),
-    [isBusy, inventory, item]
+    [inventoryType, item]
   );
+
+  useNuiEvent('refreshSlots', (data: { items?: ItemsPayload | ItemsPayload[] }) => {
+    if (!isDragging && !data.items) return;
+    if (!Array.isArray(data.items)) return;
+
+    const itemSlot = data.items.find(
+      (dataItem) => dataItem.item.slot === item.slot && dataItem.inventory === inventoryId
+    );
+
+    if (!itemSlot) return;
+
+    manager.dispatch({ type: 'dnd-core/END_DRAG' });
+  });
 
   const connectRef = (element: HTMLDivElement) => drag(drop(element));
 
-  const onMouseEnter = React.useCallback(
-    () => isSlotWithItem(item) && setCurrentItem(item),
-    [item, setCurrentItem]
-  );
-
-  const onMouseLeave = React.useCallback(
-    () => isSlotWithItem(item) && setCurrentItem(undefined),
-    [item, setCurrentItem]
-  );
-
-  const { show, hideAll } = useContextMenu({ id: `slot-context-${item.slot}-${item.name}` });
-
   const handleContext = (event: React.MouseEvent<HTMLDivElement>) => {
-    !isBusy && inventory.type === 'player' && isSlotWithItem(item) && show(event);
-    setCurrentItem(undefined);
-    ReactTooltip.hide();
+    event.preventDefault();
+    if (inventoryType !== 'player' || !isSlotWithItem(item)) return;
+
+    dispatch(openContextMenu({ item, coords: { x: event.clientX, y: event.clientY } }));
   };
 
-  React.useEffect(() => {
-    hideAll();
-    //eslint-disable-next-line
-  }, [isDragging]);
-
   const handleClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (isBusy) return;
-
-    if (event.ctrlKey && isSlotWithItem(item) && inventory.type !== 'shop') {
-      onDrop({ item: item, inventory: inventory.type });
-      setCurrentItem(undefined);
-    } else if (event.altKey && isSlotWithItem(item) && inventory.type === 'player') {
+    dispatch(closeTooltip());
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (event.ctrlKey && isSlotWithItem(item) && inventoryType !== 'shop' && inventoryType !== 'crafting') {
+      onDrop({ item: item, inventory: inventoryType });
+    } else if (event.altKey && isSlotWithItem(item) && inventoryType === 'player') {
       onUse(item);
-      setCurrentItem(undefined);
     }
   };
 
+  const refs = useMergeRefs([connectRef, ref]);
+
+const rarityClass = (() => {
+
+    if (!item.name) {
+        return '';
+    }
+
+    const itemData = Items[item.name] || { rarity: 'common' };
+    const rarity = item.metadata?.rarity || itemData.rarity;
+
+
+    switch (rarity) {
+        case 'legendary':
+            return 'rarity-legendary';
+        case 'unique':
+            return 'rarity-unique';
+        case 'epic':
+            return 'rarity-epic';
+        case 'rare':
+            return 'rarity-rare';
+        case 'uncommon':
+            return 'rarity-uncommon';
+        case 'common':
+            return 'rarity-common';
+        default:
+            return '';
+    }
+})();
+
   return (
-    <>
-      <div
-        ref={connectRef}
-        onContextMenu={handleContext}
-        onClick={handleClick}
-        className="item-container"
-        data-tip
-        data-for="item-tooltip"
-        style={{
-          opacity: isDragging ? 0.4 : 1.0,
-          backgroundImage: item.metadata?.image
-            ? `url(${process.env.PUBLIC_URL + `/images/${item.metadata.image}.png`})`
-            : item.name
-            ? `url(${process.env.PUBLIC_URL + `/images/${item.name}.png`})`
-            : 'none',
-          border: isOver ? '1px dashed rgba(255,255,255,0.4)' : '1px inset rgba(0,0,0,0.3)',
-        }}
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
-      >
-        {isSlotWithItem(item) && (
-          <>
-            <div className="item-count">
-              <span>
+  <div
+    ref={refs}
+    onContextMenu={handleContext}
+    onClick={handleClick}
+    className={`inventory-slot ${rarityClass}`}
+    style={{
+      position: 'relative',
+      filter:
+        !canPurchaseItem(item, { type: inventoryType, groups: inventoryGroups }) || !canCraftItem(item, inventoryType)
+          ? 'brightness(80%) grayscale(100%)'
+          : undefined,
+      opacity: isDragging ? 0.4 : 1.0,
+      backgroundImage: `url(${item?.name ? getItemUrl(item as SlotWithItem) : 'none'}`,
+      border: isOver || item.isMarked ? '1px dashed rgba(18,255,255,0.4)' : '1px inset rgba(0,0,0,0.3)',
+      //backgroundSize: 'cover',
+      //zIndex: 1,
+    }}
+  >
+      {isSlotWithItem(item) && (
+        <div
+          className="item-slot-wrapper"
+          onMouseEnter={() => {
+            timerRef.current = window.setTimeout(() => {
+              dispatch(openTooltip({ item, inventoryType }));
+            }, 500) as unknown as number;
+          }}
+          onMouseLeave={() => {
+            dispatch(closeTooltip());
+            if (timerRef.current) {
+              clearTimeout(timerRef.current);
+              timerRef.current = null;
+            }
+          }}
+        >
+          <div
+            className={
+              inventoryType === 'player' && item.slot <= 5 ? 'item-hotslot-header-wrapper' : 'item-slot-header-wrapper'
+            }
+          >
+            {inventoryType === 'player' && item.slot <= 5 && <div className="inventory-slot-number">{item.slot}</div>}
+            <div className="item-slot-info-wrapper">
+              <p>
                 {item.weight > 0
                   ? item.weight >= 1000
                     ? `${(item.weight / 1000).toLocaleString('en-us', {
-                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 1,
                       })}kg `
                     : `${item.weight.toLocaleString('en-us', {
-                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 0,
                       })}g `
                   : ''}
-                {/* {item.count?.toLocaleString('en-us')}x */}
-                {item.count ? item.count.toLocaleString('en-us') + `x` : ''}
-              </span>
+              </p>
+              <p>{item.count ? item.count.toLocaleString('en-us') + `x` : ''}</p>
             </div>
-            {inventory.type !== 'shop' && item?.durability !== undefined && (
+          </div>
+          <div>
+            {inventoryType !== 'shop' && item?.durability !== undefined && (
               <WeightBar percent={item.durability} durability />
             )}
-            {inventory.type === 'shop' && item?.price !== undefined && (
+            {inventoryType === 'shop' && item?.price !== undefined && (
               <>
-                {item?.currency !== 'money' &&
-                item?.currency !== 'black_money' &&
-                item.price > 0 &&
-                item?.currency ? (
-                  <div className="item-price" style={{ color: '#2ECC71' }}>
+                {item?.currency !== 'money' && item.currency !== 'black_money' && item.price > 0 && item.currency ? (
+                  <div className="item-slot-currency-wrapper">
                     <img
-                      className="item-currency"
-                      src={
-                        item?.currency
-                          ? `${process.env.PUBLIC_URL + `/images/${item?.currency}.png`}`
-                          : ''
-                      }
-                      alt="item"
-                    ></img>
-                    {item.price}
+                      src={item.currency ? getItemUrl(item.currency) : 'none'}
+                      alt="item-image"
+                      style={{
+                        imageRendering: '-webkit-optimize-contrast',
+                        height: 'auto',
+                        width: '2vh',
+                        backfaceVisibility: 'hidden',
+                        transform: 'translateZ(0)',
+                      }}
+                    />
+                    <p>{item.price.toLocaleString('en-us')}</p>
                   </div>
                 ) : (
                   <>
                     {item.price > 0 && (
                       <div
-                        className="item-price"
-                        style={{
-                          color:
-                            item.currency === 'money' || !item.currency ? '#2ECC71' : '#E74C3C',
-                        }}
+                        className="item-slot-price-wrapper"
+                        style={{ color: item.currency === 'money' || !item.currency ? '#2ECC71' : '#E74C3C' }}
                       >
-                        ${item.price}
+                        <p>
+                          {Locale.$ || '$'}
+                          {item.price.toLocaleString('en-us')}
+                        </p>
                       </div>
                     )}
                   </>
                 )}
               </>
             )}
-            <div className="item-label">
-              {item.metadata?.label ? item.metadata.label : Items[item.name]?.label || item.name}
-            </div>
-          </>
-        )}
-      </div>
-    </>
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 
-export default InventorySlot;
+export default React.memo(React.forwardRef(InventorySlot));

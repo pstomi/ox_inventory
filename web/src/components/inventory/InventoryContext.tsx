@@ -1,110 +1,155 @@
-import { Menu, Item, Submenu, Separator, ItemParams } from 'react-contexify';
 import { onUse } from '../../dnd/onUse';
+import { onMark } from '../../dnd/onMark';
 import { onGive } from '../../dnd/onGive';
-import 'react-contexify/dist/ReactContexify.css';
-import { Slot } from '../../typings';
 import { onDrop } from '../../dnd/onDrop';
 import { Items } from '../../store/items';
 import { fetchNui } from '../../utils/fetchNui';
 import { Locale } from '../../store/locale';
 import { isSlotWithItem } from '../../helpers';
 import { setClipboard } from '../../utils/setClipboard';
+import { useAppSelector } from '../../store';
+import React from 'react';
+import { Menu, MenuItem } from '../utils/menu/Menu';
 
-const InventoryContext: React.FC<{
-  item: Slot;
-  setContextVisible: React.Dispatch<React.SetStateAction<boolean>>;
-}> = (props) => {
-  const handleClick = ({
-    data,
-  }: ItemParams<
-    undefined,
-    { action: string; component?: string; slot?: number; serial?: string; id?: number }
-  >) => {
+interface DataProps {
+  action: string;
+  component?: string;
+  slot?: number;
+  serial?: string;
+  id?: number;
+}
+
+interface Button {
+  label: string;
+  index: number;
+  group?: string;
+}
+
+interface Group {
+  groupName: string | null;
+  buttons: ButtonWithIndex[];
+}
+
+interface ButtonWithIndex extends Button {
+  index: number;
+}
+
+interface GroupedButtons extends Array<Group> {}
+
+const InventoryContext: React.FC = () => {
+  const contextMenu = useAppSelector((state) => state.contextMenu);
+  const item = contextMenu.item;
+
+  const handleClick = (data: DataProps) => {
+    if (!item) return;
+
     switch (data && data.action) {
       case 'use':
-        onUse({ name: props.item.name, slot: props.item.slot });
+        onUse({ name: item.name, slot: item.slot });
         break;
       case 'give':
-        onGive({ name: props.item.name, slot: props.item.slot });
+        onGive({ name: item.name, slot: item.slot });
         break;
       case 'drop':
-        isSlotWithItem(props.item) && onDrop({ item: props.item, inventory: 'player' });
+        isSlotWithItem(item) && onDrop({ item: item, inventory: 'player' });
         break;
       case 'remove':
         fetchNui('removeComponent', { component: data?.component, slot: data?.slot });
         break;
+      case 'removeAmmo':
+        fetchNui('removeAmmo', item.slot);
+        break;
       case 'copy':
-        data?.serial && setClipboard(data.serial);
+        setClipboard(data.serial || '');
+        break;
+      case 'mark':
+        isSlotWithItem(item) && onMark(item);
         break;
       case 'custom':
-        fetchNui('useButton', { id: (data?.id || 0) + 1, slot: props.item.slot });
+        fetchNui('useButton', { id: (data?.id || 0) + 1, slot: item.slot });
         break;
     }
   };
 
+  const groupButtons = (buttons: any): GroupedButtons => {
+    return buttons.reduce((groups: Group[], button: Button, index: number) => {
+      if (button.group) {
+        const groupIndex = groups.findIndex((group) => group.groupName === button.group);
+        if (groupIndex !== -1) {
+          groups[groupIndex].buttons.push({ ...button, index });
+        } else {
+          groups.push({
+            groupName: button.group,
+            buttons: [{ ...button, index }],
+          });
+        }
+      } else {
+        groups.push({
+          groupName: null,
+          buttons: [{ ...button, index }],
+        });
+      }
+      return groups;
+    }, []);
+  };
+
   return (
     <>
-      {isSlotWithItem(props.item) && (
-        <Menu
-          id={`slot-context-${props.item.slot}-${props.item.name}`}
-          theme="dark"
-          animation="fade"
-          onShown={() => {
-            props.setContextVisible(true);
-          }}
-          onHidden={() => {
-            props.setContextVisible(false);
-          }}
-        >
-          <Item onClick={handleClick} data={{ action: 'use' }}>
-            {Locale.ui_use}
-          </Item>
-          <Item onClick={handleClick} data={{ action: 'give' }}>
-            {Locale.ui_give}
-          </Item>
-          <Item onClick={handleClick} data={{ action: 'drop' }}>
-            {Locale.ui_drop}
-          </Item>
-          {props.item.name.startsWith('WEAPON_') && props.item.metadata?.serial && (
-            <>
-              <Separator />
-              <Item
-                onClick={handleClick}
-                data={{ action: 'copy', serial: props.item.metadata.serial }}
-              >
-                {Locale.ui_copy}
-              </Item>
-              {props.item.metadata?.components?.length > 0 && (
-                <Submenu label={Locale.ui_removeattachments}>
-                  {props.item.metadata.components.map((component: string, index: number) => (
-                    <Item
-                      key={index}
-                      onClick={handleClick}
-                      data={{ action: 'remove', component: component, slot: props.item.slot }}
-                    >
-                      {Items[component]?.label}
-                    </Item>
-                  ))}
-                </Submenu>
-              )}
-            </>
-          )}
-          {(Items[props.item.name]?.buttons?.length || 0) > 0 && (
-            <>
-              <Separator />
-              {Items[props.item.name]?.buttons?.map((label: string, index: number) => (
-                <Item
+      <Menu>
+        <MenuItem onClick={() => handleClick({ action: 'use' })} label={Locale.ui_use || 'Use'} />
+        <MenuItem onClick={() => handleClick({ action: 'drop' })} label={Locale.ui_drop || 'Drop'} />
+        <MenuItem onClick={() => handleClick({ action: 'mark' })} label={Locale.ui_mark || 'Mark'} />
+        {item && item.metadata?.ammo > 0 && (
+          <MenuItem onClick={() => handleClick({ action: 'removeAmmo' })} label={Locale.ui_remove_ammo} />
+        )}
+        {item && item.metadata?.serial && (
+          <MenuItem
+            onClick={() => handleClick({ action: 'copy', serial: item.metadata?.serial })}
+            label={Locale.ui_copy}
+          />
+        )}
+        {item && item.metadata?.components && item.metadata?.components.length > 0 && (
+          <Menu label={Locale.ui_removeattachments}>
+            {item &&
+              item.metadata?.components.map((component: string, index: number) => (
+                <MenuItem
                   key={index}
-                  onClick={handleClick}
-                  data={{ action: 'custom', id: index }}
-                >
-                  {label}
-                </Item>
+                  onClick={() => handleClick({ action: 'remove', component, slot: item.slot })}
+                  label={Items[component]?.label || ''}
+                />
               ))}
-            </>
-          )}
-        </Menu>
-      )}
+          </Menu>
+        )}
+        {((item && item.name && Items[item.name]?.buttons?.length) || 0) > 0 && (
+          <>
+            {item &&
+              item.name &&
+              groupButtons(Items[item.name]?.buttons).map((group: Group, index: number) => (
+                <React.Fragment key={index}>
+                  {group.groupName ? (
+                    <Menu label={group.groupName}>
+                      {group.buttons.map((button: Button) => (
+                        <MenuItem
+                          key={button.index}
+                          onClick={() => handleClick({ action: 'custom', id: button.index })}
+                          label={button.label}
+                        />
+                      ))}
+                    </Menu>
+                  ) : (
+                    group.buttons.map((button: Button) => (
+                      <MenuItem
+                        key={button.index}
+                        onClick={() => handleClick({ action: 'custom', id: button.index })}
+                        label={button.label}
+                      />
+                    ))
+                  )}
+                </React.Fragment>
+              ))}
+          </>
+        )}
+      </Menu>
     </>
   );
 };

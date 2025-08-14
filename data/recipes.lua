@@ -1,0 +1,18 @@
+return {
+	["assaultrifle"] = {items={"ak47belsoszerkezet","ak47cso","ak47ravasz","ak47tar","ak47valltamasz","steel"}},
+	["gusenberg"] = {items={"gusenbergbelsoszerkezet","gusenbergcso","gusenbergravasz","gusenbergtar","gusenbergvalltamasz","steel"}},
+	["microsmg"] = {items={"uzibelsoszerkezet","uzicso","uziravasz","uzitar","uzivalltamasz","steel"}},
+	["pistol"] = {items={"pistolbelsoszerkezet","pistolravasz","pistoltar","steel"}},
+	["machinepistol"] = {items={"tec9belso","tec9tar","tec9ravasz","steel"}},
+	["fuvescigi"] = {items={"cigarette","dopebag","weed","steel"}},
+	["g36"] = {items={"g36belso","g36ravasz","g36tar","steel"}},
+	["pmxfm"] = {items={"pmxfmbelso","pmxfmravasz","pmxfmtar","steel"}},
+	["assaultrifle_mk2"] = {items={"ak47belsoszerkezetmk2","ak47csomk2","ak47ravaszmk2","ak47tarmk2","ak47valltamaszmk2","steel"}},
+	["pistol_mk2"] = {items={"pistolbelsoszerkezetmk2","pistolravaszmk2","pistoltarmk2","steel"}},
+	["assaultshotgun"] = {items={"shotgunbelsoszerkezet","shotguncso","shotgunravasz","shotguntar","shotgunvalltamasz","steel"}},
+	["smgammopack30"] = {items={"smgammobase","steel"}},
+	["arammopack30"] = {items={"arammobase","steel"}},
+	["pistolammopack30"] = {items={"pistolammobase","steel"}},
+	["shotgunammopack30"] = {items={"shotgunammobase","steel"}},
+	["horizonpplada_lucky"] = {items={"dl_egg_01","dl_egg_02","dl_egg_03","dl_egg_04","dl_egg_05","dl_egg_06","dl_egg_07","dl_egg_08","dl_egg_09","dl_egg_10","dl_egg_11","dl_egg_12"}},
+}

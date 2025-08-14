@@ -1,20 +1,14 @@
-import {
-  createSlice,
-  current,
-  isFulfilled,
-  isPending,
-  isRejected,
-  PayloadAction,
-} from '@reduxjs/toolkit';
+import { createSlice, current, isFulfilled, isPending, isRejected, PayloadAction } from '@reduxjs/toolkit';
 import type { RootState } from '.';
-import { State } from '../typings';
 import {
-  setupInventoryReducer,
+  markSlotsReducer,
+  moveSlotsReducer,
   refreshSlotsReducer,
+  setupInventoryReducer,
   stackSlotsReducer,
   swapSlotsReducer,
-  moveSlotsReducer,
 } from '../reducers';
+import { State } from '../typings';
 
 const initialState: State = {
   leftInventory: {
@@ -31,9 +25,11 @@ const initialState: State = {
     maxWeight: 0,
     items: [],
   },
+  additionalMetadata: new Array(),
   itemAmount: 0,
   shiftPressed: false,
   isBusy: false,
+  players:[]
 };
 
 export const inventorySlice = createSlice({
@@ -44,7 +40,18 @@ export const inventorySlice = createSlice({
     swapSlots: swapSlotsReducer,
     setupInventory: setupInventoryReducer,
     moveSlots: moveSlotsReducer,
+	markSlots: markSlotsReducer,
     refreshSlots: refreshSlotsReducer,
+    setAdditionalMetadata: (state, action: PayloadAction<Array<{ metadata: string; value: string }>>) => {
+      const metadata = [];
+
+      for (let i = 0; i < action.payload.length; i++) {
+        const entry = action.payload[i];
+        if (!state.additionalMetadata.find((el) => el.value === entry.value)) metadata.push(entry);
+      }
+
+      state.additionalMetadata = [...state.additionalMetadata, ...metadata];
+    },
     setItemAmount: (state, action: PayloadAction<number>) => {
       state.itemAmount = action.payload;
     },
@@ -52,9 +59,7 @@ export const inventorySlice = createSlice({
       state.shiftPressed = action.payload;
     },
     setContainerWeight: (state, action: PayloadAction<number>) => {
-      const container = state.leftInventory.items.find(
-        (item) => item.metadata?.container === state.rightInventory.id
-      );
+      const container = state.leftInventory.items.find((item) => item.metadata?.container === state.rightInventory.id);
 
       if (!container) return;
 
@@ -84,10 +89,12 @@ export const inventorySlice = createSlice({
 });
 
 export const {
+  setAdditionalMetadata,
   setItemAmount,
   setShiftPressed,
   setupInventory,
   swapSlots,
+  markSlots,
   moveSlots,
   stackSlots,
   refreshSlots,
@@ -97,5 +104,6 @@ export const selectLeftInventory = (state: RootState) => state.inventory.leftInv
 export const selectRightInventory = (state: RootState) => state.inventory.rightInventory;
 export const selectItemAmount = (state: RootState) => state.inventory.itemAmount;
 export const selectIsBusy = (state: RootState) => state.inventory.isBusy;
+export const selectAllPlayers = (state:RootState) => state.inventory.players;
 
 export default inventorySlice.reducer;

@@ -1,43 +1,32 @@
 import React, { useState } from 'react';
 import { useDrop } from 'react-dnd';
-import { useAppDispatch, useAppSelector } from '../../store';
+import { useAppDispatch, useAppSelector, store } from '../../store';
 import { selectItemAmount, setItemAmount } from '../../store/inventory';
 import { DragSource } from '../../typings';
 import { onUse } from '../../dnd/onUse';
 import { onGive } from '../../dnd/onGive';
 import { fetchNui } from '../../utils/fetchNui';
-import { faInfoCircle, faTimes } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import Fade from '../utils/Fade';
-import { Notify } from '../utils/Notifications';
 import { Locale } from '../../store/locale';
+import UsefulControls from './UsefulControls';
+import { Recipes } from '../../store/recipes';
 
-const InfoScreen: React.FC<{
-  infoVisible: boolean;
-  setInfoVisible: React.Dispatch<React.SetStateAction<boolean>>;
-}> = ({ infoVisible, setInfoVisible }) => {
-  return (
-    <div className="info-main" style={{ visibility: infoVisible ? 'visible' : 'hidden' }}>
-      <FontAwesomeIcon
-        icon={faTimes}
-        onClick={() => setInfoVisible(false)}
-        className="info-exit-icon"
-      />
-      <h2>{Locale.ui_usefulcontrols}</h2>
-      <p>[RMB] - {Locale.ui_rmb}</p>
-      <p>[CTRL + LMB] - {Locale.ui_ctrl_lmb}</p>
-      <p>[SHIFT + Drag] - {Locale.ui_shift_drag}</p>
-      <p>[CTRL + SHIFT + LMB] - {Locale.ui_ctrl_shift_lmb}</p>
-      <p>[ALT + LMB] - {Locale.ui_alt_lmb}</p>
-      <p>[CTRL + C] - {Locale.ui_ctrl_c}</p>
-      <span
-        className="info-ox"
-        onClick={() => Notify({ text: 'Made with 🐂 by the Overextended team' })}
-      >
-        🐂
-      </span>
-    </div>
-  );
+function craftItem() {
+  const { inventory: state } = store.getState();
+  const items = state.leftInventory.items;
+  console.log("All Items")
+  console.log(JSON.stringify(items))
+  if (items) {
+    let markedItems = items.filter((item) => { if (item.isMarked && item.name) return true});
+    let sortedItems = markedItems.map((item) => { return item.name}).sort((a, b) => (a || '').localeCompare((b || '')));
+	const item = Object.keys(Recipes).find(key => JSON.stringify(Recipes[key]) === JSON.stringify(sortedItems));
+    if (item) {
+	  console.log("Recipe found")
+      fetchNui('craftItem', item);
+    } else {
+	  console.log("No recipe")
+	}
+  }
+
 };
 
 const InventoryControl: React.FC = () => {
@@ -61,43 +50,37 @@ const InventoryControl: React.FC = () => {
   }));
 
   const inputHandler = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (
-      event.target.valueAsNumber % 1 !== 0 ||
-      isNaN(event.target.valueAsNumber) ||
-      event.target.valueAsNumber < 0
-    )
-      event.target.valueAsNumber = 0;
+    event.target.valueAsNumber =
+      isNaN(event.target.valueAsNumber) || event.target.valueAsNumber < 0 ? 0 : Math.floor(event.target.valueAsNumber);
     dispatch(setItemAmount(event.target.valueAsNumber));
   };
 
   return (
     <>
-      <Fade visible={infoVisible} duration={0.25} className="info-fade">
-        <InfoScreen infoVisible={infoVisible} setInfoVisible={setInfoVisible} />
-      </Fade>
-      <div className="column-wrapper" style={{ margin: '1vh' }}>
-        <input
-          type="number"
-          className="button input"
-          min={0}
-          defaultValue={itemAmount}
-          onChange={inputHandler}
-        />
-        <button ref={use} className="button">
-          {Locale.ui_use}
-        </button>
-        <button ref={give} className="button">
-          {Locale.ui_give}
-        </button>
-        <button className="button" onClick={() => fetchNui('exit')}>
-          {Locale.ui_close}
-        </button>
-        <div className="misc-btns">
-          <button onClick={() => setInfoVisible(true)}>
-            <FontAwesomeIcon icon={faInfoCircle} />
+      <UsefulControls infoVisible={infoVisible} setInfoVisible={setInfoVisible} />
+      <div className="inventory-control">
+        <div className="inventory-control-wrapper">
+          <input
+            className="inventory-control-input"
+            type="number"
+            defaultValue={itemAmount}
+            onChange={inputHandler}
+             min={1}
+          />
+          <button className="inventory-control-button" ref={use}>
+            {Locale.ui_use || 'Use'}
+          </button>
+          <button className="inventory-control-button" onClick={() => craftItem()}>
+            {Locale.ui_craft || 'Craft'}
           </button>
         </div>
       </div>
+
+      <button className="useful-controls-button" onClick={() => setInfoVisible(true)}>
+        <svg xmlns="http://www.w3.org/2000/svg" height="2em" viewBox="0 0 524 524">
+          <path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM216 336h24V272H216c-13.3 0-24-10.7-24-24s10.7-24 24-24h48c13.3 0 24 10.7 24 24v88h8c13.3 0 24 10.7 24 24s-10.7 24-24 24H216c-13.3 0-24-10.7-24-24s10.7-24 24-24zm40-208a32 32 0 1 1 0 64 32 32 0 1 1 0-64z" />
+        </svg>
+      </button>
     </>
   );
 };

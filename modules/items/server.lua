@@ -1,173 +1,131 @@
 if not lib then return end
 
 local Items = {}
-local ItemList = shared.items
+local ItemList = require 'modules.items.shared' --[[@as table<string, OxServerItem>]]
+local Utils = require 'modules.utils.server'
 
--- Slot count and maximum weight for containers
--- Whitelist and blacklist: ['item_name'] = true
-Items.containers = {
-	['paperbag'] = {
-		size = {5, 1000},
-		blacklist = {
-			['testburger'] = true -- No burgers!
-		}
-	},
-	['pizzabox'] = {
-		size = {1, 1000},
-		whitelist = {
-			['pizza'] = true -- Pizza box for pizza only
-		}
-	}
-}
+TriggerEvent('ox_inventory:itemList', ItemList)
+
+Items.containers = require 'modules.items.containers'
 
 -- Possible metadata when creating garbage
 local trash = {
-	{description = 'An old rolled up newspaper.', weight = 200, image = 'trash_newspaper'},
-	{description = 'A discarded burger shot carton.', weight = 50, image = 'trash_burgershot'},
+	{description = 'A discarded burger carton.', weight = 50, image = 'trash_burger'},
 	{description = 'An empty soda can.', weight = 20, image = 'trash_can'},
 	{description = 'A mouldy piece of bread.', weight = 70, image = 'trash_bread'},
-	{description = 'An empty ciggarette carton.', weight = 10, image = 'trash_fags'},
-	{description = 'A slightly used pair of panties.', weight = 20, image = 'panties'},
-	{description = 'An empty coffee cup.', weight = 20, image = 'trash_coffee'},
-	{description = 'A crumpled up piece of paper.', weight = 5, image = 'trash_paper'},
 	{description = 'An empty chips bag.', weight = 5, image = 'trash_chips'},
+	{description = 'A slightly used pair of panties.', weight = 20, image = 'panties'},
+	{description = 'An old rolled up newspaper.', weight = 200, image = 'WEAPON_ACIDPACKAGE'},
 }
 
-local function GetItem(item)
-	if item then
-		local type
-		item = string.lower(item)
-		if item:sub(0, 7) == 'weapon_' then type, item = 1, string.upper(item)
-		elseif item:sub(0, 5) == 'ammo-' then type = 2
-		elseif item:sub(0, 3) == 'at_' then type = 3 end
-		return ItemList[item] or false, type
-	end
-	return ItemList
+---@param _ table?
+---@param name string?
+---@return table?
+local function getItem(_, name)
+    if not name then return ItemList end
+
+	if type(name) ~= 'string' then return end
+
+    name = name:lower()
+
+    if name:sub(0, 7) == 'weapon_' then
+        name = name:upper()
+    end
+
+    return ItemList[name]
 end
 
-setmetatable(Items, {
-	__call = function(self, item)
-		if item then return GetItem(item) end
-		return self
-	end
+setmetatable(Items --[[@as table]], {
+	__call = getItem
 })
 
+---@cast Items +fun(itemName: string): OxServerItem
+---@cast Items +fun(): table<string, OxServerItem>
+
+-- Support both names
+exports('Items', function(item) return getItem(nil, item) end)
+exports('ItemList', function(item) return getItem(nil, item) end)
+
+local Inventory
+
 CreateThread(function()
+	Inventory = require 'modules.inventory.server'
+
+    if not lib then return end
+
 	if shared.framework == 'esx' then
-		local items = MySQL.query.await('SELECT * FROM items')
-		if items then
-			local query = {}
+		local success, items = pcall(MySQL.query.await, 'SELECT * FROM items')
+
+		if success and items and next(items) then
+			local dump = {}
+			local count = 0
+
 			for i = 1, #items do
-				local v = items[i]
-				if i == 1 then query[i] = ('DELETE FROM items WHERE name = "%s"'):format(v.name) else query[i] = ('OR name = "%s"'):format(v.name) end
-				v.name = v.name
-				v.label = v.label
-				v.close = v.closeonuse or true
-				v.stack = v.stackable or true
-				v.description = (v.description or '')
-				v.weight = v.weight or 0
+				local item = items[i]
+
+				if not ItemList[item.name] then
+					item.close = item.closeonuse == nil and true or item.closeonuse
+					item.stack = item.stackable == nil and true or item.stackable
+					item.description = item.description
+					item.weight = item.weight or 0
+					dump[i] = item
+					count += 1
+				end
 			end
-			if next(query) then
-				query = table.concat(query, ' ')
-				local sql = LoadResourceFile(shared.resource, 'setup/dump.sql')
-				if not sql then error('Unable to load "setup/dump.sql', 1) end
+
+			if table.type(dump) ~= "empty" then
 				local file = {string.strtrim(LoadResourceFile(shared.resource, 'data/items.lua'))}
 				file[1] = file[1]:gsub('}$', '')
-				local dump = {'INSERT INTO `items` (`name`, `label`, `weight`, `description`) VALUES'}
-local itemFormat = [[
 
-	['%s'] = {
-		label = '%s',
+				---@todo separate into functions for reusability, properly handle nil values
+				local itemFormat = [[
+
+	[%q] = {
+		label = %q,
 		weight = %s,
 		stack = %s,
 		close = %s,
-		description = '%s'
+		description = %q
 	},
 ]]
-				local saveSql = false
-				local dumpSize = #dump
 				local fileSize = #file
-				for _, v in pairs(items) do
-					local formatName = v.name:gsub("'", "\\'"):lower()
-					if not ItemList[formatName] then
-						if not saveSql then saveSql = true end
-						dumpSize += 1
-						fileSize += 1
-						dump[dumpSize] = ('\n	("%s", "%s", %s, "%s")'):format(v.name, v.label, v.weight, v.description)
-						if dumpSize ~= 2 then dump[dumpSize] = ','..dump[dumpSize] end
-						file[fileSize] = (itemFormat):format(formatName, v.label:gsub("'", "\\'"):lower(), v.weight, v.stack, v.close, v.description:gsub("'", "\\'"))
-						ItemList[formatName] = v
-					end
-				end
-				dump[dumpSize+1] = ';\n\n'
-				file[fileSize+1] = '}'
-				if saveSql then
-					dump = ('%s%s'):format(sql, table.concat(dump))
-					SaveResourceFile(shared.resource, 'setup/dump.sql', dump, -1)
-				end
-				SaveResourceFile(shared.resource, 'data/items.lua', table.concat(file), -1)
-				MySQL.update(query, function(result)
-					if result > 0 then
-						shared.info('Removed '..result..' items from the database')
-					end
-				end)
-				if items then shared.info(#items..' items have been copied from the database') end
-			end
-		end
-	end
 
-	if server.clearstashes then
-		MySQL.query.await('DELETE FROM ox_inventory WHERE lastupdated < (NOW() - INTERVAL '..server.clearstashes..') OR data = "[]"')
+				for _, item in pairs(dump) do
+					if not ItemList[item.name] then
+						fileSize += 1
+
+						local itemStr = itemFormat:format(item.name, item.label, item.weight, item.stack, item.close, item.description and json.encode(item.description) or 'nil')
+						-- temporary solution for nil values
+						itemStr = itemStr:gsub('[%s]-[%w]+ = "?nil"?,?', '')
+						file[fileSize] = itemStr
+						ItemList[item.name] = item
+					end
+				end
+
+				file[fileSize+1] = '}'
+
+				SaveResourceFile(shared.resource, 'data/items.lua', table.concat(file), -1)
+				shared.info(count, 'items have been copied from the database.')
+				shared.info('You should restart the resource to load the new items.')
+			end
+
+			shared.info('Database contains', #items, 'items.')
+		end
+
+		Wait(500)
 	end
 
 	local count = 0
-	Wait(2000)
-	if server.UsableItemsCallbacks then
-		server.UsableItemsCallbacks = server.UsableItemsCallbacks()
-	else server.UsableItemsCallbacks = {} end
 
-	for _, v in pairs(ItemList) do
-		if v.consume and v.consume > 0 and server.UsableItemsCallbacks[v.name] then server.UsableItemsCallbacks[v.name] = nil end
+	Wait(1000)
+
+	for _ in pairs(ItemList) do
 		count += 1
 	end
 
-	TriggerEvent('ox_inventory:itemList', ItemList)
-	shared.info('Inventory has loaded '..count..' items')
+	shared.info(('Inventory has loaded %d items'):format(count))
 	collectgarbage('collect') -- clean up from initialisation
 	shared.ready = true
-	--[[local ignore = {[0] = '?', [`WEAPON_UNARMED`] = 'unarmed', [966099553] = 'shovel'}
-	while true do
-		Wait(45000)
-		local Players = ESX.GetPlayers()
-		for i = 1, #Players do
-			local i = Players[i]
-			--if not IsPlayerAceAllowed(i, 'command.refresh') then
-				local inv, ped = Inventory(i), GetPlayerPed(i)
-				local hash, curWeapon = GetSelectedPedWeapon(ped)
-				if not ignore[hash] then
-					curWeapon = Utils.GetWeapon(hash)
-					if curWeapon then
-						local count = 0
-						for k, v in pairs(inv.items) do
-							if v.name == curWeapon.name then
-								count = 1 break
-							end
-						end
-						if count == 0 then
-							-- does not own weapon; player may be cheating
-							shared.warning(inv.name, 'is using an invalid weapon (', curWeapon.name, ')')
-							--DropPlayer(i)
-						end
-					else
-						-- weapon doesn't exist; player may be cheating
-						shared.warning(inv.name, 'is using an unknown weapon (', hash, ')')
-						--DropPlayer(i)
-					end
-				end
-			--end
-			Wait(200)
-		end
-	end]]
 end)
 
 local function GenerateText(num)
@@ -187,23 +145,48 @@ local function GenerateSerial(text)
 	return ('%s%s%s'):format(math.random(100000,999999), text == nil and GenerateText(3) or text, math.random(100000,999999))
 end
 
-local Inventory
-CreateThread(function() Inventory = server.inventory end)
+local function setItemDurability(item, metadata)
+	local degrade = item.degrade
 
+	if degrade then
+		metadata.durability = os.time()+(degrade * 60)
+		metadata.degrade = degrade
+	elseif item.durability then
+		metadata.durability = 100
+	end
+
+	return metadata
+end
+
+local TriggerEventHooks = require 'modules.hooks.server'
+
+---@param inv inventory
+---@param item OxServerItem
+---@param metadata any
+---@param count number
+---@return table, number
+---Generates metadata for new items being created through AddItem, buyItem, etc.
 function Items.Metadata(inv, item, metadata, count)
 	if type(inv) ~= 'table' then inv = Inventory(inv) end
-	local isWeapon = item.name:sub(0, 7) == 'WEAPON_'
-	if not isWeapon then metadata = not metadata and {} or type(metadata) == 'string' and {type=metadata} or metadata end
+	if not item.weapon then metadata = not metadata and {} or type(metadata) == 'string' and {type=metadata} or metadata end
+	if not count then count = 1 end
 
-	if isWeapon then
+	---@cast metadata table<string, any>
+
+	if item.weapon then
 		if type(metadata) ~= 'table' then metadata = {} end
 		if not metadata.durability then metadata.durability = 100 end
 		if not metadata.ammo and item.ammoname then metadata.ammo = 0 end
 		if not metadata.components then metadata.components = {} end
 
-		if metadata.registered ~= false and metadata.ammo then
-			metadata.registered = type(metadata.registered) == 'string' and metadata.registered or inv.player.name
+		if metadata.registered ~= false and (metadata.ammo or item.name == 'WEAPON_STUNGUN' or item.name == 'WEAPON_GRENADELAUNCHER_SMOKE') then
+			local registered = type(metadata.registered) == 'string' and metadata.registered or inv?.player?.name
+			metadata.registered = registered
 			metadata.serial = GenerateSerial(metadata.serial)
+		end
+
+		if item.hash == `WEAPON_PETROLCAN` or item.hash == `WEAPON_HAZARDCAN` or item.hash == `WEAPON_FERTILIZERCAN` or item.hash == `WEAPON_FIREEXTINGUISHER` or item.hash == `WEAPON_FLAMETHROWER` then
+			metadata.ammo = metadata.durability
 		end
 	else
 		local container = Items.containers[item.name]
@@ -212,24 +195,23 @@ function Items.Metadata(inv, item, metadata, count)
 			count = 1
 			metadata.container = metadata.container or GenerateText(3)..os.time()
 			metadata.size = container.size
-		elseif item.name == 'identification' then
-			count = 1
-			if next(metadata) == nil then
+		elseif not next(metadata) then
+			if item.name == 'identification' then
+				count = 1
 				metadata = {
 					type = inv.player.name,
-					description = shared.locale('identification', (inv.player.sex) and shared.locale('male') or shared.locale('female'), inv.player.dateofbirth)
+					description = locale('identification', (inv.player.sex) and locale('male') or locale('female'), inv.player.dateofbirth)
 				}
+			elseif item.name == 'garbage' then
+				local trashType = trash[math.random(1, #trash)]
+				metadata.image = trashType.image
+				metadata.weight = trashType.weight
+				metadata.description = trashType.description
 			end
-		elseif item.name == 'garbage' then
-			local trashType = trash[math.random(1, #trash)]
-			metadata.image = trashType.image
-			metadata.weight = trashType.weight
-			metadata.description = trashType.description
 		end
 
-		if not metadata?.durability then
-			local durability = ItemList[item.name].degrade
-			if durability then metadata.durability = os.time()+(durability * 60) metadata.degrade = durability end
+		if not metadata.durability then
+			metadata = setItemDurability(ItemList[item.name], metadata)
 		end
 	end
 
@@ -237,49 +219,126 @@ function Items.Metadata(inv, item, metadata, count)
 		count = 1
 	end
 
-	return metadata, count
-end
+	local response = TriggerEventHooks('createItem', {
+		inventoryId = inv and inv.id,
+		metadata = metadata,
+		item = item,
+		count = count,
+	})
 
-function Items.CheckMetadata(metadata, item, name)
-	if metadata.bag then
-		metadata.container = metadata.bag
-		metadata.size = ItemList.containers[name]?.size or {5, 1000}
-		metadata.bag = nil
+	if type(response) == 'table' then
+		metadata = response
 	end
 
-	if metadata.durability and not item.durability and not item.degrade and not name:sub(0, 7) == 'WEAPON_' then
-		metadata.durability = nil
-	end
-
-	if metadata.components then
-		if table.type(metadata.components) == 'array' then
-			for i = 1, #metadata.components do
-				if not ItemList[metadata.components[i]] then
-					table.remove(metadata.components, i)
-				end
-			end
+	if metadata.imageurl and Utils.IsValidImageUrl then
+		if Utils.IsValidImageUrl(metadata.imageurl) then
+			Utils.DiscordEmbed('Valid image URL', ('Created item "%s" (%s) with valid url in "%s".\n%s\nid: %s\nowner: %s'):format(metadata.label or item.label, item.name, inv.label, metadata.imageurl, inv.id, inv.owner, metadata.imageurl), metadata.imageurl, 65280)
 		else
-			local components = {}
-			local size = 0
-			for _, component in pairs(metadata.components) do
-				if component and ItemList[component] then
-					size += 1
-					components[size] = component
-				end
-			end
-			metadata.components = components
+			Utils.DiscordEmbed('Invalid image URL', ('Created item "%s" (%s) with invalid url in "%s".\n%s\nid: %s\nowner: %s'):format(metadata.label or item.label, item.name, inv.label, metadata.imageurl, inv.id, inv.owner, metadata.imageurl), metadata.imageurl, 16711680)
+			metadata.imageurl = nil
 		end
 	end
 
-	if metadata.serial and item.name:sub(0, 7) == 'WEAPON_' and not item.ammoname then
-		metadata.serial = nil
+	return metadata, count
+end
+
+---@param metadata table<string, any>
+---@param item OxServerItem
+---@param name string
+---@param ostime number
+---Validate (and in some cases convert) item metadata when an inventory is being loaded.
+function Items.CheckMetadata(metadata, item, name, ostime)
+	if metadata.bag then
+		metadata.container = metadata.bag
+		metadata.size = Items.containers[name]?.size or {5, 1000}
+		metadata.bag = nil
+	end
+
+	local durability = metadata.durability
+
+	if durability then
+		if durability < 0 or durability > 100 and ostime >= durability then
+			metadata.durability = 0
+		end
+	else
+		metadata = setItemDurability(item, metadata)
+	end
+
+	if item.weapon then
+		if metadata.components then
+			if table.type(metadata.components) == 'array' then
+				for i = #metadata.components, 1, -1 do
+					if not ItemList[metadata.components[i]] then
+						table.remove(metadata.components, i)
+					end
+				end
+			else
+				local components = {}
+				local size = 0
+
+				for _, component in pairs(metadata.components) do
+					if component and ItemList[component] then
+						size += 1
+						components[size] = component
+					end
+				end
+
+				metadata.components = components
+			end
+		end
+
+		if metadata.serial and item.throwable then
+			metadata.serial = nil
+		end
+
+		if metadata.specialAmmo and type(metadata.specialAmmo) ~= 'string' then
+			metadata.specialAmmo = nil
+		end
 	end
 
 	return metadata
 end
 
+---Update item durability, and call `Inventory.RemoveItem` if it was removed from decay.
+---@param inv OxInventory
+---@param slot SlotWithItem
+---@param item OxServerItem
+---@param value? number
+---@param ostime? number
+---@return boolean? removed
+function Items.UpdateDurability(inv, slot, item, value, ostime)
+    local durability = slot.metadata.durability or value
+
+    if not durability then return end
+
+    if value then
+        durability = value
+    elseif ostime and durability > 100 and ostime >= durability then
+        durability = 0
+    end
+
+    if item.decay and durability == 0 then
+        return Inventory.RemoveItem(inv, slot.name, slot.count, nil, slot.slot)
+    end
+
+    if slot.metadata.durability == durability then return end
+
+    inv.changed = true
+    slot.metadata.durability = durability
+
+    inv:syncSlotsWithClients({
+        {
+            item = slot,
+            inventory = inv.id
+        }
+    }, true)
+end
+
+---@deprecated
+---Use the 'ox_inventory:usedItem' event or the 'usingItem' or 'buyItem' hooks
 local function Item(name, cb)
 	local item = ItemList[name]
+
 	if item and not item.cb then
 		item.cb = cb
 	end
@@ -289,27 +348,28 @@ end
 -- Serverside item functions
 -----------------------------------------------------------------------------------------------
 
-Item('testburger', function(event, item, inventory, slot, data)
-	if event == 'usingItem' then
-		if Inventory.GetItem(inventory, item, inventory.items[slot].metadata, true) > 0 then
-			-- if we return false here, we can cancel item use
-			return {
-				inventory.label, event, 'external item use poggies'
-			}
-		end
+-- Item('testburger', function(event, item, inventory, slot, data)
+-- 	if event == 'usingItem' then
+-- 		if Inventory.GetItem(inventory, item, inventory.items[slot].metadata, true) > 0 then
+-- 			-- if we return false here, we can cancel item use
+-- 			return {
+-- 				inventory.label, event, 'external item use poggies'
+-- 			}
+-- 		end
 
-	elseif event == 'usedItem' then
-		print(('%s just ate a %s from slot %s'):format(inventory.label, item.label, slot))
+-- 	elseif event == 'usedItem' then
+-- 		print(('%s just ate a %s from slot %s'):format(inventory.label, item.label, slot))
 
-	elseif event == 'buying' then
-		print(data.id, data.coords, json.encode(data.items[slot], {indent=true}))
-	end
+-- 	elseif event == 'buying' then
+-- 		print(data.id, data.coords, json.encode(data.items[slot], {indent=true}))
+-- 	end
+-- end)
+
+RegisterServerEvent('ox_inventory:xmasTree')
+AddEventHandler('ox_inventory:xmasTree', function()
+	useExport(string.strsplit('.', 'rcore_xmas.xmas_tree'))	
 end)
 
 -----------------------------------------------------------------------------------------------
 
--- Support both names
-exports('Items', GetItem)
-exports('ItemList', GetItem)
-
-server.items = Items
+return Items

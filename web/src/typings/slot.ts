@@ -7,6 +7,7 @@ export type Slot = {
     [key: string]: any;
   };
   durability?: number;
+  isMarked?: boolean;
 };
 
 export type SlotWithItem = Slot & {
@@ -15,5 +16,10 @@ export type SlotWithItem = Slot & {
   weight: number;
   durability?: number;
   price?: number;
-  currency?: string; // string since I'm assuming it will just be item name?
+  currency?: string;
+  ingredients?: { [key: string]: number };
+  duration?: number;
+  image?: string;
+  grade?: number | number[];
+  isMarked?: boolean;
 };

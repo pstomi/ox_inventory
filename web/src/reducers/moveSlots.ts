@@ -24,9 +24,10 @@ export const moveSlotsReducer: CaseReducer<
     weight: pieceWeight * count,
     slot: toSlot.slot,
     durability: itemDurability(fromItem.metadata, curTime),
+	isMarked: fromSlot.isMarked,
   };
 
-  if (fromType === InventoryType.SHOP) return;
+  if (fromType === InventoryType.SHOP || fromType === InventoryType.CRAFTING) return;
 
   sourceInventory.items[fromSlot.slot - 1] =
     fromSlot.count - count > 0
@@ -34,8 +35,10 @@ export const moveSlotsReducer: CaseReducer<
           ...sourceInventory.items[fromSlot.slot - 1],
           count: fromSlot.count - count,
           weight: pieceWeight * (fromSlot.count - count),
+		  isMarked: false,
         }
       : {
           slot: fromSlot.slot,
+		  isMarked: false,
         };
 };

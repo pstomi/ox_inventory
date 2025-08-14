@@ -24,10 +24,7 @@ const calculateParentOffset = (monitor: DragLayerMonitor): XYCoord => {
   return subtract(client, source);
 };
 
-export const calculatePointerPosition = (
-  monitor: DragLayerMonitor,
-  childRef: RefObject<Element>
-): XYCoord | null => {
+export const calculatePointerPosition = (monitor: DragLayerMonitor, childRef: RefObject<Element>): XYCoord | null => {
   const offset = monitor.getClientOffset();
   if (offset === null) {
     return null;
@@ -55,15 +52,13 @@ const DragPreview: React.FC = () => {
     <>
       {isDragging && currentOffset && data.item && (
         <div
+          className="item-drag-preview"
           ref={element}
-          className="drag"
           style={{
             transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
-            backgroundImage: `url(${
-              process.env.PUBLIC_URL + `/images/${data.image || data.item.name}.png`
-            })`,
+            backgroundImage: data.image,
           }}
-        ></div>
+        />
       )}
     </>
   );

@@ -84,10 +84,14 @@ return {
 		[19] = {41, 328000},	-- Military
 		[20] = {61, 488000},	-- Commercial
 		models = {
-			[`xa21`] = {11, 10000}
+			[`17fontaine`] = {11, 1000000},
+			[`trailerswb`] = {11, 600000},
+			[`bbcamper`] = {61, 488000}
 		},
 		boneIndex = {
-			[`pounder`] = 'wheel_rr'
+			[`pounder`] = 'wheel_rr',
+			[`17fontaine`] = 'wheel_rr',
+			[`rs7c8`] = 'wheel_rr'
 		}
 	}
 }

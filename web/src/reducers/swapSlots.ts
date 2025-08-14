@@ -14,17 +14,27 @@ export const swapSlotsReducer: CaseReducer<
   const { fromSlot, fromType, toSlot, toType } = action.payload;
   const { sourceInventory, targetInventory } = getTargetInventory(state, fromType, toType);
   const curTime = Math.floor(Date.now() / 1000);
+  let sourceMarked = false;
+  let targetMarked = false;
+  if (fromSlot.isMarked) {
+    sourceMarked = true;
+  }
+  if (toSlot.isMarked) {
+    targetMarked = true;
+  }
 
   [sourceInventory.items[fromSlot.slot - 1], targetInventory.items[toSlot.slot - 1]] = [
     {
       ...targetInventory.items[toSlot.slot - 1],
       slot: fromSlot.slot,
       durability: itemDurability(toSlot.metadata, curTime),
+	  isMarked: targetMarked,
     },
     {
       ...sourceInventory.items[fromSlot.slot - 1],
       slot: toSlot.slot,
       durability: itemDurability(fromSlot.metadata, curTime),
+	  isMarked: sourceMarked,
     },
   ];
 };

@@ -1,86 +1,72 @@
+if not lib then return end
+
+---@diagnostic disable-next-line: duplicate-set-field
 function client.setPlayerData(key, value)
 	PlayerData[key] = value
 	OnPlayerData(key, value)
 end
 
 function client.hasGroup(group)
-	if PlayerData.loaded then
-		if type(group) == 'table' then
-			for name, rank in pairs(group) do
-				local groupRank = PlayerData.groups[name]
-				if groupRank and groupRank >= (rank or 0) then
-					return name, groupRank
-				end
+	if not PlayerData.loaded then return end
+
+	if type(group) == 'table' then
+		for name, rank in pairs(group) do
+			local groupRank = PlayerData.groups[name]
+			if groupRank and groupRank >= (rank or 0) then
+				return name, groupRank
 			end
-		else
-			local groupRank = PlayerData.groups[group]
-			if groupRank then
-				return group, groupRank
-			end
+		end
+	else
+		local groupRank = PlayerData.groups[group]
+		if groupRank then
+			return group, groupRank
 		end
 	end
 end
 
-local Utils = client.utils
+local Shops = require 'modules.shops.client'
+local Utils = require 'modules.utils.client'
+local Weapon = require 'modules.weapon.client'
+local Items = require 'modules.items.client'
 
-local function onLogout()
-	if PlayerData.loaded then
-		if client.parachute then
-			Utils.DeleteObject(client.parachute)
-			client.parachute = false
+function client.onLogout()
+	if not PlayerData.loaded then return end
+
+	if client.parachute then
+		Utils.DeleteEntity(client.parachute[1])
+		client.parachute = false
+	end
+
+	for _, point in pairs(client.drops) do
+		if point.entity then
+			Utils.DeleteEntity(point.entity)
 		end
 
-		TriggerEvent('ox_inventory:closeInventory')
-		PlayerData.loaded = false
-		ClearInterval(client.interval)
-		ClearInterval(client.tick)
-		currentWeapon = Utils.Disarm(currentWeapon)
+		point:remove()
 	end
+
+    for _, v in pairs(Items --[[@as table]]) do
+        v.count = 0
+    end
+
+	PlayerData.loaded = false
+	client.drops = nil
+
+	client.closeInventory()
+	Shops.wipeShops()
+
+    if client.interval then
+        ClearInterval(client.interval)
+        ClearInterval(client.tick)
+    end
+
+	Weapon.Disarm()
 end
 
-if shared.framework == 'ox' then
-	RegisterNetEvent('ox:playerLogout', onLogout)
-elseif shared.framework == 'esx' then
-	local ESX = exports.es_extended:getSharedObject()
+local success, result = pcall(lib.load, ('modules.bridge.%s.client'):format(shared.framework))
 
-	ESX = {
-		SetPlayerData = ESX.SetPlayerData,
-		PlayerLoaded = ESX.PlayerLoaded
-	}
-
-	function client.setPlayerData(key, value)
-		PlayerData[key] = value
-		ESX.SetPlayerData(key, value)
-	end
-
-	RegisterNetEvent('esx:onPlayerLogout', onLogout)
-
-	AddEventHandler('esx:setPlayerData', function(key, value)
-		if PlayerData.loaded and GetInvokingResource() == 'es_extended' then
-			if key == 'job' then
-				key = 'groups'
-				value = { [value.name] = value.grade }
-			end
-
-			PlayerData[key] = value
-			OnPlayerData(key, value)
-		end
-	end)
-
-	RegisterNetEvent('esx_policejob:handcuff', function()
-		PlayerData.cuffed = not PlayerData.cuffed
-		LocalPlayer.state:set('invBusy', PlayerData.cuffed, false)
-		if PlayerData.cuffed then
-			currentWeapon = Utils.Disarm(currentWeapon)
-		end
-	end)
-
-	RegisterNetEvent('esx_policejob:unrestrain', function()
-		PlayerData.cuffed = false
-		LocalPlayer.state:set('invBusy', PlayerData.cuffed, false)
-	end)
-
-	if ESX.PlayerLoaded then
-		TriggerServerEvent('ox_inventory:requestPlayerInventory')
-	end
+if not success then
+    lib.print.error(result)
+    lib = nil
+    return
 end

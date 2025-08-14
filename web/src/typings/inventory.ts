@@ -4,6 +4,7 @@ export enum InventoryType {
   PLAYER = 'player',
   SHOP = 'shop',
   CONTAINER = 'container',
+  CRAFTING = 'crafting',
 }
 
 export type Inventory = {
@@ -13,4 +14,15 @@ export type Inventory = {
   items: Slot[];
   maxWeight?: number;
   label?: string;
+  groups?: Record<string, number>;
 };
+
+export type Players = {
+  distance?:number,
+  pHeadshotTxd?:string,
+  pId:number
+}
+
+export interface PlayerData {
+  players: Array<Players>;
+}

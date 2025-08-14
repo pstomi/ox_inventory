@@ -1,163 +1,92 @@
-import React, { useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
-import { Items } from '../../store/items';
-import { Inventory, SlotWithItem } from '../../typings';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Inventory } from '../../typings';
 import WeightBar from '../utils/WeightBar';
 import InventorySlot from './InventorySlot';
-import ReactTooltip from 'react-tooltip';
-import { Locale } from '../../store/locale';
-import InventoryContext from './InventoryContext';
+import InventoryMugShots from './InventoryMugShots';
 import { getTotalWeight } from '../../helpers';
-import { createPortal } from 'react-dom';
-import useNuiEvent from '../../hooks/useNuiEvent';
-import useKeyPress from '../../hooks/useKeyPress';
-import { setClipboard } from '../../utils/setClipboard';
-import { debugData } from '../../utils/debugData';
+import { useAppSelector } from '../../store';
+import { useIntersection } from '../../hooks/useIntersection';
 
-// debugData([
-//   {
-//     action: 'displayMetadata',
-//     data: { ['mustard']: 'Mustard', ['ketchup']: 'Ketchup' },
-//   },
-// ]);
+interface InventoryGridProps {
+  inventory: Inventory;
+  /** Optional array of players for mug‑shot grid (only for player inventory) */
+  playersData?: any[];
+}
 
-const InventoryGrid: React.FC<{ inventory: Inventory }> = ({ inventory }) => {
-  const [currentItem, setCurrentItem] = React.useState<SlotWithItem>();
-  const [contextVisible, setContextVisible] = React.useState<boolean>(false);
-  const [additionalMetadata, setAdditionalMetadata] = React.useState<{ [key: string]: any }>({});
+const PAGE_SIZE = 30;
 
-  const isControlPressed = useKeyPress('Control');
-  const isCopyPressed = useKeyPress('c');
-
-  const weight = React.useMemo(
-    () => (inventory.maxWeight !== undefined ? getTotalWeight(inventory.items) : 0),
+/**
+ * InventoryGrid – new‑version (with infinite scroll) + mug‑shot support.
+ * - Keeps the original PAGE_SIZE & intersection paging.
+ * - Adds a `mui-grid` section rendered *only* for player inventories
+ *   and when `playersData` is supplied.
+ */
+const InventoryGrid: React.FC<InventoryGridProps> = ({ inventory, playersData = [] }) => {
+  const weight = useMemo(
+    () =>
+      inventory.maxWeight !== undefined
+        ? Math.floor(getTotalWeight(inventory.items) * 1000) / 1000
+        : 0,
     [inventory.maxWeight, inventory.items]
   );
 
-  // Need to rebuild tooltip for items in a map
+  const [page, setPage] = useState(0);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const { ref, entry } = useIntersection({ threshold: 0.5 });
+  const isBusy = useAppSelector((state) => state.inventory.isBusy);
+
+  /* grow the slice when the sentinel is visible */
   useEffect(() => {
-    ReactTooltip.rebuild();
-  }, [currentItem]);
-
-  // Fixes an issue where hovering an item after exiting context menu would apply no styling
-  // But have to rehover on item to get tooltip, there's probably a better solution?
-  useEffect(() => {
-    setCurrentItem(undefined);
-  }, [contextVisible]);
-
-  useEffect(() => {
-    if (!currentItem || !isControlPressed || !isCopyPressed) return;
-    currentItem?.metadata?.serial && setClipboard(currentItem.metadata.serial);
-  }, [isControlPressed, isCopyPressed]);
-
-  useNuiEvent('setupInventory', () => {
-    setCurrentItem(undefined);
-    ReactTooltip.rebuild();
-  });
-
-  useNuiEvent<{ [key: string]: any }>('displayMetadata', (data) =>
-    setAdditionalMetadata((oldMetadata) => ({ ...oldMetadata, ...data }))
-  );
+    if (entry && entry.isIntersecting) {
+      setPage((prev) => prev + 1);
+    }
+  }, [entry]);
 
   return (
-    <>
-      <div className="column-wrapper">
-        <div className="inventory-label">
-          <p>{inventory.label && `${inventory.label}`}</p>
+    <div
+      className="inventory-grid-wrapper"
+      style={{ pointerEvents: isBusy ? 'none' : 'auto' }}
+    >
+      {/* header / weight bar */}
+      <div>
+        <div className="inventory-grid-header-wrapper">
+          <p>{inventory.label}</p>
           {inventory.maxWeight && (
-            <div>
-              {weight / 1000}/{inventory.maxWeight / 1000}kg
-            </div>
+            <p>
+              {Math.floor(weight / 1000)}/{inventory.maxWeight / 1000}kg
+            </p>
           )}
         </div>
-        <WeightBar percent={inventory.maxWeight ? (weight / inventory.maxWeight) * 100 : 0} />
-        <div className={`inventory-grid inventory-grid-${inventory.type}`}>
-          {inventory.items.map((item) => (
-            <React.Fragment key={`grid-${inventory.id}-${item.slot}`}>
-              <InventorySlot
-                key={`${inventory.type}-${inventory.id}-${item.slot}`}
-                item={item}
-                inventory={inventory}
-                setCurrentItem={setCurrentItem}
-              />
-              {createPortal(
-                <InventoryContext
-                  item={item}
-                  setContextVisible={setContextVisible}
-                  key={`context-${item.slot}`}
-                />,
-                document.body
-              )}
-            </React.Fragment>
+        <WeightBar
+          percent={inventory.maxWeight ? (weight / inventory.maxWeight) * 100 : 0}
+        />
+      </div>
+
+      {/* main slot grid */}
+      <div className="inventory-grid-container" ref={containerRef}>
+        {inventory.items
+          .slice(0, (page + 1) * PAGE_SIZE)
+          .map((item, index) => (
+            <InventorySlot
+              key={`${inventory.type}-${inventory.id}-${item.slot}`}
+              item={item}
+              ref={index === (page + 1) * PAGE_SIZE - 1 ? ref : null}
+              inventoryType={inventory.type}
+              inventoryGroups={inventory.groups}
+              inventoryId={inventory.id}
+            />
+          ))}
+      </div>
+
+      {/* mug‑shots grid (player inventory only) */}
+      {inventory.type === 'player' && playersData.length > 0 && (
+        <div className="mui-grid">
+          {playersData.map((player, i) => (
+            <InventoryMugShots key={i} playersData={player} />
           ))}
         </div>
-
-        {currentItem && contextVisible === false && (
-          <ReactTooltip
-            id="item-tooltip"
-            className="item-info"
-            arrowColor="transparent"
-            place="right"
-            delayShow={300}
-          >
-            <>
-              <span style={{ fontSize: '1em' }}>
-                {currentItem.metadata?.label
-                  ? currentItem.metadata.label
-                  : Items[currentItem.name]?.label || currentItem.name}
-              </span>
-              <span style={{ fontSize: '1em', float: 'right' }}>{currentItem.metadata?.type}</span>
-              <hr style={{ borderBottom: '0.3em', marginBottom: '0.3em' }}></hr>
-              {(currentItem.metadata?.description || Items[currentItem.name]?.description) && (
-                <ReactMarkdown>
-                  {currentItem.metadata?.description || Items[currentItem.name]?.description}
-                </ReactMarkdown>
-              )}
-              {currentItem?.durability !== undefined && (
-                <p>
-                  {Locale.ui_durability}: {Math.trunc(currentItem.durability)}
-                </p>
-              )}
-              {currentItem.metadata?.ammo !== undefined && (
-                <p>
-                  {Locale.ui_ammo}: {currentItem.metadata.ammo}
-                </p>
-              )}
-              {currentItem.metadata?.serial && (
-                <p>
-                  {Locale.ui_serial}: {currentItem.metadata.serial}
-                </p>
-              )}
-              {currentItem.metadata?.components && currentItem.metadata?.components[0] && (
-                <p>
-                  {Locale.ui_components}:{' '}
-                  {(currentItem.metadata?.components).map(
-                    (component: string, index: number, array: []) =>
-                      index + 1 === array.length
-                        ? Items[component]?.label
-                        : Items[component]?.label + ', '
-                  )}
-                </p>
-              )}
-              {currentItem.metadata?.weapontint && (
-                <p>
-                  {Locale.ui_tint}: {currentItem.metadata.weapontint}
-                </p>
-              )}
-              {Object.keys(additionalMetadata).map((data: string, index: number) => (
-                <React.Fragment key={`metadata-${index}`}>
-                  {currentItem.metadata && currentItem.metadata[data] && (
-                    <p>
-                      {additionalMetadata[data]}: {currentItem.metadata[data]}
-                    </p>
-                  )}
-                </React.Fragment>
-              ))}
-            </>
-          </ReactTooltip>
-        )}
-      </div>
-    </>
+      )}
+    </div>
   );
 };
 
