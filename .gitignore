@@ -1,4 +1,40 @@
-modules/logs/**/
-.cfg
-node_modules
-.idea
+# ---- Windows szemét ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ---- IDE / Editor ----
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ---- Node / Frontend ----
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Ha van buildelt UI
+dist/
+build/
+
+# ---- FiveM / Lua ----
+# Cache és adatbázis fájlok
+.cache/
+*.log
+*.db
+*.db-shm
+*.db-wal
+
+# Ha valami packolt zip kerül ide
+*.zip
+
+# ---- Egyéb ----
+# Lokális env config (pl. ha használsz)
+.env
+*.local
